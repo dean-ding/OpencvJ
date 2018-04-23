@@ -44,7 +44,7 @@ include_directories(src/main/jniLibs/include)
 
 add_library( # Sets the name of the library.
 
-detection_based_tracker
+FaceDetected
 
 # Sets the library as a shared library.
 
@@ -82,7 +82,7 @@ log )
 
 target_link_libraries( # Specifies the target library.
 
-detection_based_tracker opencv_java3
+FaceDetected opencv_java3
 
 # Links the target library to the log library
 

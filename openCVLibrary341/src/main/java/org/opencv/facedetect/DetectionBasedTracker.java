@@ -1,8 +1,11 @@
-package org.opencv.samples.facedetect;
+package org.opencv.facedetect;
 
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfRect;
 
+/**
+ * Created: tvt on 2018/4/21 09:33
+ */
 public class DetectionBasedTracker
 {
     public DetectionBasedTracker(String cascadeName, int minFaceSize) {

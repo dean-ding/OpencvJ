@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <org.opencv.android.JavaCameraView
+    <org.opencv.android.PortraitCameraView
         android:id="@+id/fd_activity_surface_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -19,7 +19,7 @@
         android:layout_marginRight="20dp"
         android:layout_marginTop="20dp"/>
 
-    <org.opencv.samples.facedetect.RectBitmap
+    <ImageView
         android:id="@+id/fd_image_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>

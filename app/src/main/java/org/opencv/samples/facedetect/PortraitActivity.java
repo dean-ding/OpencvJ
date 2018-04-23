@@ -1,14 +1,12 @@
 package org.opencv.samples.facedetect;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.os.Build;
+import android.graphics.Matrix;
 import android.os.Bundle;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
+import android.os.Handler;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -26,13 +24,10 @@ import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
-import org.opencv.core.Core;
-import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfRect;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
-import org.opencv.core.Size;
 import org.opencv.facedetect.DetectionBasedTracker;
 import org.opencv.imgproc.Imgproc;
 
@@ -41,7 +36,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-public class FdActivity extends Activity implements CvCameraViewListener2
+public class PortraitActivity extends Activity implements CvCameraViewListener2
 {
 
     private static final String TAG = "OCVSample::Activity";
@@ -59,8 +54,6 @@ public class FdActivity extends Activity implements CvCameraViewListener2
     private Mat mGray;
     private Mat Matlin;
     private Mat gMatlin;
-    private Size mNarrowSize;
-    private Mat mCache90Mat;
     private File mCascadeFile;
     private DetectionBasedTracker mNativeDetector;
 
@@ -72,7 +65,7 @@ public class FdActivity extends Activity implements CvCameraViewListener2
 
     private CameraBridgeViewBase mOpenCvCameraView;
     private Button mSwitchCameraView;
-    private RectBitmap mImageView;
+    private ImageView mImageView;
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this)
     {
@@ -86,7 +79,7 @@ public class FdActivity extends Activity implements CvCameraViewListener2
                     Log.i(TAG, "OpenCV loaded successfully");
                     System.loadLibrary("opencv_java3");
                     // Load native library after(!) OpenCV initialization
-                    System.loadLibrary("FaceDetected");
+                    System.loadLibrary("detection_based_tracker");
 
                     try
                     {
@@ -128,7 +121,7 @@ public class FdActivity extends Activity implements CvCameraViewListener2
         }
     };
 
-    public FdActivity()
+    public PortraitActivity()
     {
         mDetectorName = new String[2];
         mDetectorName[JAVA_DETECTOR] = "Java";
@@ -145,16 +138,14 @@ public class FdActivity extends Activity implements CvCameraViewListener2
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        setContentView(R.layout.face_detect_surface_view);
+        setContentView(R.layout.face_detect_portrait_view);
 
         mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.fd_activity_surface_view);
         mOpenCvCameraView.setVisibility(CameraBridgeViewBase.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
-        mOpenCvCameraView.setCameraIndex(CameraBridgeViewBase.CAMERA_ID_BACK);
-        mOpenCvCameraView.setWindowManager(getWindowManager());
+        mOpenCvCameraView.setCameraIndex(CameraBridgeViewBase.CAMERA_ID_FRONT);
 
         mImageView = findViewById(R.id.fd_image_view);
-        mImageView.setScaleType(ImageView.ScaleType.FIT_XY);
         mSwitchCameraView = findViewById(R.id.fd_switch_camera_view);
         mSwitchCameraView.setOnClickListener(new View.OnClickListener()
         {
@@ -173,28 +164,6 @@ public class FdActivity extends Activity implements CvCameraViewListener2
                 mOpenCvCameraView.enableView();
             }
         });
-
-        // First check android version
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP_MR1)
-        {
-            //Check if permission is already granted
-            //thisActivity is your activity. (e.g.: MainActivity.this)
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
-            {
-                // Give first an explanation, if needed.
-                if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA))
-                {
-                    // Show an explanation to the user *asynchronously* -- don't block
-                    // this thread waiting for the user's response! After the user
-                    // sees the explanation, try again to request the permission.
-                }
-                else
-                {
-                    // No explanation needed, we can request the permission.
-                    ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 1);
-                }
-            }
-        }
     }
 
     @Override
@@ -229,24 +198,24 @@ public class FdActivity extends Activity implements CvCameraViewListener2
         mOpenCvCameraView.disableView();
     }
 
+    private int mViewWidth = 0;
+    private int mViewHeight = 0;
+
     public void onCameraViewStarted(int width, int height)
     {
         mGray = new Mat();
         mRgba = new Mat();
-        mCache90Mat = new Mat();
 
-        gMatlin = new Mat();
         Matlin = new Mat();
+        gMatlin = new Mat();
+        mCacheBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        mAlphaBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
 
-        // height = height - getStausBarHeight(this) - getVirtualBarHeight(this);
-
-        float mScale = (float) height / (float) 540;
-        mCacheBitmap = Bitmap.createBitmap((int) ((float) width / mScale), (int) ((float) height / mScale), Bitmap.Config.ARGB_4444);
-        Utils.bitmapToMat(mCacheBitmap, mCache90Mat);
-        Core.rotate(mCache90Mat, mCache90Mat, Core.ROTATE_90_CLOCKWISE);
-
-        System.out.println("mScale = " + mScale + "，width = " + mCacheBitmap.getWidth() + "，height = " + mCacheBitmap.getHeight());
-        mNarrowSize = new Size(mCacheBitmap.getWidth(), mCacheBitmap.getHeight()); // 设置新图片的大小
+        WindowManager manager = this.getWindowManager();
+        DisplayMetrics outMetrics = new DisplayMetrics();
+        manager.getDefaultDisplay().getMetrics(outMetrics);
+        mViewWidth = outMetrics.widthPixels;
+        mViewHeight = outMetrics.heightPixels;
     }
 
     public void onCameraViewStopped()
@@ -255,58 +224,62 @@ public class FdActivity extends Activity implements CvCameraViewListener2
         mRgba.release();
     }
 
-    @Override
-    public Mat onCameraFrame(CvCameraViewFrame inputFrame)
-    {
-        mGray = inputFrame.gray();
-        Mat narrowMat = new Mat(mNarrowSize, CvType.CV_8UC1);
-        Imgproc.resize(mGray, narrowMat, mNarrowSize);
-        mCache90Mat.copyTo(Matlin);
-        //使前置的图像也是正的
-        if (mOpenCvCameraView.getCameraIndex() == CameraBridgeViewBase.CAMERA_ID_FRONT)
-        {
-            Core.flip(narrowMat, narrowMat, 1);
-        }
-        if (mAbsoluteFaceSize == 0)
-        {
-            int height = narrowMat.rows();
-            if (Math.round(height * mRelativeFaceSize) > 0)
-            {
-                mAbsoluteFaceSize = Math.round(height * mRelativeFaceSize);
-            }
-            if (mNativeDetector != null)
-            {
-                mNativeDetector.setMinFaceSize(mAbsoluteFaceSize);
-            }
-        }
-
-        MatOfRect faces = new MatOfRect();
-        if (mOpenCvCameraView.getDisplayOrientation() == 270)
-        {
-            Core.rotate(narrowMat, gMatlin, Core.ROTATE_90_COUNTERCLOCKWISE);
-        }
-        else
-        {
-            Core.rotate(narrowMat, gMatlin, Core.ROTATE_90_CLOCKWISE);
-        }
-        if (mNativeDetector != null)
-        {
-            mNativeDetector.detect(gMatlin, faces);
-        }
-        Rect[] faceArray = faces.toArray();
-        for (Rect rect : faceArray)
-        {
-            Imgproc.rectangle(Matlin, rect.tl(), rect.br(), new Scalar(0, 255, 0, 255), 1);
-        }
-        Core.rotate(Matlin, mRgba, Core.ROTATE_90_COUNTERCLOCKWISE);
-
-        deliverAndDrawFrame(faceArray.length, mRgba);
-        return mRgba;
-    }
+    //    @Override
+    //    public Mat onCameraFrame(CvCameraViewFrame inputFrame)
+    //    {
+    //        mGray = inputFrame.gray();
+    //        // 0ms
+    //        Utils.bitmapToMat(mAlphaBitmap, mRgba);
+    //        //10-15ms
+    //        //使前置的图像也是正的
+    //        if (mOpenCvCameraView.getCameraIndex() == CameraBridgeViewBase.CAMERA_ID_FRONT)
+    //        {
+    //            // Core.flip(mRgba, mRgba, 1);
+    //            // Core.flip(mGray, mGray, 1);
+    //        }
+    //        //40-50ms
+    //        if (mAbsoluteFaceSize == 0)
+    //        {
+    //            int height = mGray.rows();
+    //            if (Math.round(height * mRelativeFaceSize) > 0)
+    //            {
+    //                mAbsoluteFaceSize = Math.round(height * mRelativeFaceSize);
+    //            }
+    //            if (mNativeDetector != null)
+    //            {
+    //                mNativeDetector.setMinFaceSize(mAbsoluteFaceSize);
+    //            }
+    //        }
+    //        //40-50ms
+    //
+    //        MatOfRect faces = new MatOfRect();
+    //        Core.rotate(mGray, gMatlin, Core.ROTATE_90_CLOCKWISE);
+    //        Core.rotate(mRgba, Matlin, Core.ROTATE_90_CLOCKWISE);
+    //        //150ms
+    //        if (mNativeDetector != null)
+    //        {
+    //            mNativeDetector.detect(gMatlin, faces);
+    //        }
+    //        //180ms
+    //
+    //        Rect[] faceArray = faces.toArray();
+    //        System.out.println("------>>>>" + faceArray.length);
+    //        for (Rect rect : faceArray)
+    //        {
+    //            Imgproc.rectangle(Matlin, rect.tl(), rect.br(), new Scalar(0, 255, 0, 255), 2);
+    //        }
+    //        //190ms
+    //        Core.rotate(Matlin, mRgba, Core.ROTATE_90_COUNTERCLOCKWISE);
+    //        //250ms
+    //        deliverAndDrawFrame(mRgba);
+    //        //900ms
+    //        return mRgba;
+    //    }
 
     private Bitmap mCacheBitmap;
+    private Bitmap mAlphaBitmap;
 
-    protected void deliverAndDrawFrame(int count, Mat modified)
+    protected void deliverAndDrawFrame(Mat modified)
     {
 
         boolean bmpValid = true;
@@ -324,53 +297,68 @@ public class FdActivity extends Activity implements CvCameraViewListener2
                 bmpValid = false;
             }
         }
-        if (count > 0 && bmpValid && mCacheBitmap != null)
+        Matrix matrix = new Matrix(); // I rotate it with minimal process
+        matrix.preTranslate((mViewWidth - mCacheBitmap.getWidth()) / 2, (mViewHeight - mCacheBitmap.getHeight()) / 2);
+        //        matrix.postRotate(90f, (mViewWidth) / 2, (mViewHeight) / 2);
+        float scale = (float) mViewWidth / (float) mCacheBitmap.getHeight();
+        matrix.postScale(scale, scale, mViewWidth / 2, mViewHeight / 2);
+        final Bitmap bitmap = Bitmap.createBitmap(mCacheBitmap, 0, 0, mCacheBitmap.getWidth(), mCacheBitmap.getHeight(), matrix, false);
+
+        if (bmpValid && mCacheBitmap != null)
         {
-            mImageView.updateRect(mCacheBitmap);
-        }
-        else
-        {
-            mImageView.updateRect(null);
+            mHandler.post(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    //                    BitmapDrawable drawable = (BitmapDrawable) mImageView.getDrawable();
+                    //                    if (drawable != null)
+                    //                    {
+                    //                        Bitmap bmp = drawable.getBitmap();
+                    //                        if (null != bmp && !bmp.isRecycled())
+                    //                        {
+                    //                            bmp.recycle();
+                    //                            bmp = null;
+                    //                        }
+                    //                    }
+                    //                    mImageView.setImageBitmap(null);
+                    mImageView.setImageBitmap(bitmap);
+                }
+            });
         }
     }
 
-    //    @Override
-    //    public Mat onCameraFrame(CvCameraViewFrame inputFrame)
-    //    {
-    //        mGray = inputFrame.gray();
-    //        mRgba = inputFrame.rgba();
-    //        //使前置的图像也是正的
-    //        if (mOpenCvCameraView.getCameraIndex() == CameraBridgeViewBase.CAMERA_ID_FRONT)
-    //        {
-    //            Core.flip(mRgba, mRgba, 1);
-    //            Core.flip(mGray, mGray, 1);
-    //        }
-    //        if (mAbsoluteFaceSize == 0)
-    //        {
-    //            int height = mGray.rows();
-    //            if (Math.round(height * mRelativeFaceSize) > 0)
-    //            {
-    //                mAbsoluteFaceSize = Math.round(height * mRelativeFaceSize);
-    //            }
-    //            if (mNativeDetector != null)
-    //            {
-    //                mNativeDetector.setMinFaceSize(mAbsoluteFaceSize);
-    //            }
-    //        }
-    //
-    //        MatOfRect faces = new MatOfRect();
-    //        Core.rotate(mGray, gMatlin, Core.ROTATE_90_CLOCKWISE);
-    //        Core.rotate(mRgba, Matlin, Core.ROTATE_90_CLOCKWISE);
-    //        if (mNativeDetector != null)
-    //        {
-    //            mNativeDetector.detect(gMatlin, faces);
-    //        }
-    //        Rect[] faceArray = faces.toArray();
-    //        for (Rect rect : faceArray)
-    //            Imgproc.rectangle(Matlin, rect.tl(), rect.br(), new Scalar(0, 255, 0, 255), 2);
-    //        Core.rotate(Matlin, mRgba, Core.ROTATE_90_COUNTERCLOCKWISE);
-    //        return mRgba;
-    //    }
+    private Handler mHandler = new Handler();
+
+    @Override
+    public Mat onCameraFrame(CvCameraViewFrame inputFrame)
+    {
+        mRgba = inputFrame.rgba();
+        mGray = inputFrame.gray();
+
+        if (mAbsoluteFaceSize == 0)
+        {
+            int height = mGray.rows();
+            if (Math.round(height * mRelativeFaceSize) > 0)
+            {
+                mAbsoluteFaceSize = Math.round(height * mRelativeFaceSize);
+            }
+            mNativeDetector.setMinFaceSize(mAbsoluteFaceSize);
+        }
+
+        MatOfRect faces = new MatOfRect();
+
+        if (mNativeDetector != null)
+        {
+            mNativeDetector.detect(mGray, faces);
+        }
+
+        Rect[] facesArray = faces.toArray();
+        System.out.println("facesArray.length = " + facesArray.length);
+        for (int i = 0; i < facesArray.length; i++)
+            Imgproc.rectangle(mRgba, facesArray[i].tl(), facesArray[i].br(), FACE_RECT_COLOR, 3);
+        return mRgba;
+    }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu)

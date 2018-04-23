@@ -71,25 +71,90 @@ public class PortraitCameraView extends CameraBridgeViewBase implements Camera.P
         {
             mCamera = null;
 
-            boolean connected = false;
-            int numberOfCameras = android.hardware.Camera.getNumberOfCameras();
-            android.hardware.Camera.CameraInfo cameraInfo = new android.hardware.Camera.CameraInfo();
-            for (int i = 0; i < numberOfCameras; i++)
+            if (mCameraIndex == CAMERA_ID_ANY)
             {
-                android.hardware.Camera.getCameraInfo(i, cameraInfo);
-                if (cameraInfo.facing == android.hardware.Camera.CameraInfo.CAMERA_FACING_BACK)
+                Log.d(TAG, "Trying to open camera with old open()");
+                try
                 {
-                    try
+                    mCamera = Camera.open();
+                }
+                catch (Exception e)
+                {
+                    Log.e(TAG, "Camera is not available (in use or does not exist): " + e.getLocalizedMessage());
+                }
+
+                if (mCamera == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD)
+                {
+                    boolean connected = false;
+                    for (int camIdx = 0; camIdx < Camera.getNumberOfCameras(); ++camIdx)
                     {
-                        mCamera = Camera.open(i);
-                        mCameraId = i;
-                        connected = true;
+                        Log.d(TAG, "Trying to open camera with new open(" + Integer.valueOf(camIdx) + ")");
+                        try
+                        {
+                            mCamera = Camera.open(camIdx);
+                            connected = true;
+                        }
+                        catch (RuntimeException e)
+                        {
+                            Log.e(TAG, "Camera #" + camIdx + "failed to open: " + e.getLocalizedMessage());
+                        }
+                        if (connected) break;
                     }
-                    catch (RuntimeException e)
+                }
+            }
+            else
+            {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD)
+                {
+                    int localCameraIndex = mCameraIndex;
+                    if (mCameraIndex == CAMERA_ID_BACK)
                     {
-                        Log.e(TAG, "Camera #" + i + "failed to open: " + e.getMessage());
+                        Log.i(TAG, "Trying to open back camera");
+                        Camera.CameraInfo cameraInfo = new Camera.CameraInfo();
+                        for (int camIdx = 0; camIdx < Camera.getNumberOfCameras(); ++camIdx)
+                        {
+                            Camera.getCameraInfo(camIdx, cameraInfo);
+                            if (cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_BACK)
+                            {
+                                localCameraIndex = camIdx;
+                                break;
+                            }
+                        }
                     }
-                    if (connected) break;
+                    else if (mCameraIndex == CAMERA_ID_FRONT)
+                    {
+                        Log.i(TAG, "Trying to open front camera");
+                        Camera.CameraInfo cameraInfo = new Camera.CameraInfo();
+                        for (int camIdx = 0; camIdx < Camera.getNumberOfCameras(); ++camIdx)
+                        {
+                            Camera.getCameraInfo(camIdx, cameraInfo);
+                            if (cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_FRONT)
+                            {
+                                localCameraIndex = camIdx;
+                                break;
+                            }
+                        }
+                    }
+                    if (localCameraIndex == CAMERA_ID_BACK)
+                    {
+                        Log.e(TAG, "Back camera not found!");
+                    }
+                    else if (localCameraIndex == CAMERA_ID_FRONT)
+                    {
+                        Log.e(TAG, "Front camera not found!");
+                    }
+                    else
+                    {
+                        Log.d(TAG, "Trying to open camera with new open(" + Integer.valueOf(localCameraIndex) + ")");
+                        try
+                        {
+                            mCamera = Camera.open(localCameraIndex);
+                        }
+                        catch (RuntimeException e)
+                        {
+                            Log.e(TAG, "Camera #" + localCameraIndex + "failed to open: " + e.getLocalizedMessage());
+                        }
+                    }
                 }
             }
 
@@ -105,10 +170,24 @@ public class PortraitCameraView extends CameraBridgeViewBase implements Camera.P
                 if (sizes != null)
                 {
                 /* Select the size that fits surface considering maximum size allowed */
-                    Size frameSize = calculateCameraFrameSize(true, sizes, new JavaCameraSizeAccessor(), height, width); //use turn around values here to get the correct prev size for
+                    Size frameSize = calculateCameraFrameSize(true, sizes, new JavaCameraSizeAccessor(), width, height); //use turn around values here to get the correct prev size for
                     // portrait mode
 
-                    params.setPreviewFormat(ImageFormat.NV21);
+                    if (Build.FINGERPRINT.startsWith("generic")
+                            || Build.FINGERPRINT.startsWith("unknown")
+                            || Build.MODEL.contains("google_sdk")
+                            || Build.MODEL.contains("Emulator")
+                            || Build.MODEL.contains("Android SDK built for x86")
+                            || Build.MANUFACTURER.contains("Genymotion")
+                            || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                            || "google_sdk".equals(Build.PRODUCT))
+                    {
+                        params.setPreviewFormat(ImageFormat.YV12);  // "generic" or "android" = android emulator
+                    }
+                    else
+                    {
+                        params.setPreviewFormat(ImageFormat.NV21);
+                    }
                     Log.d(TAG, "Set preview size to " + Integer.valueOf((int) frameSize.width) + "x" + Integer.valueOf((int) frameSize.height));
                     params.setPreviewSize((int) frameSize.width, (int) frameSize.height);
 
@@ -220,6 +299,8 @@ public class PortraitCameraView extends CameraBridgeViewBase implements Camera.P
         }
     }
 
+    private boolean mCameraFrameReady = false;
+
     @Override
     protected boolean connectCamera(int width, int height)
     {
@@ -234,7 +315,9 @@ public class PortraitCameraView extends CameraBridgeViewBase implements Camera.P
             return false;
         }
 
-    /* now we can start update thread */
+        mCameraFrameReady = false;
+
+        /* now we can start update thread */
         Log.d(TAG, "Starting processing thread");
         mStopThread = false;
         mThread = new Thread(new CameraWorker());
@@ -274,6 +357,8 @@ public class PortraitCameraView extends CameraBridgeViewBase implements Camera.P
 
     /* Now release camera */
         releaseCamera();
+
+        mCameraFrameReady = false;
     }
 
     public void onPreviewFrame(byte[] frame, Camera arg1)
@@ -282,6 +367,7 @@ public class PortraitCameraView extends CameraBridgeViewBase implements Camera.P
         synchronized (this)
         {
             mFrameChain[1 - mChainIdx].put(0, 0, frame);
+            mCameraFrameReady = true;
             this.notify();
         }
         if (mCamera != null)
@@ -343,11 +429,15 @@ public class PortraitCameraView extends CameraBridgeViewBase implements Camera.P
         {
             do
             {
+                boolean hasFrame = false;
                 synchronized (PortraitCameraView.this)
                 {
                     try
                     {
-                        PortraitCameraView.this.wait();
+                        while (!mCameraFrameReady && !mStopThread)
+                        {
+                            PortraitCameraView.this.wait();
+                        }
                     }
                     catch (InterruptedException e)
                     {

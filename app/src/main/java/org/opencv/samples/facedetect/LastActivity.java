@@ -1,14 +1,9 @@
 package org.opencv.samples.facedetect;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.os.Build;
 import android.os.Bundle;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -26,22 +21,18 @@ import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
-import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
-import org.opencv.core.MatOfRect;
-import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.facedetect.DetectionBasedTracker;
-import org.opencv.imgproc.Imgproc;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-public class FdActivity extends Activity implements CvCameraViewListener2
+public class LastActivity extends Activity implements CvCameraViewListener2
 {
 
     private static final String TAG = "OCVSample::Activity";
@@ -59,8 +50,11 @@ public class FdActivity extends Activity implements CvCameraViewListener2
     private Mat mGray;
     private Mat Matlin;
     private Mat gMatlin;
+    private Size mZoomSize;
     private Size mNarrowSize;
-    private Mat mCache90Mat;
+    private Mat mZoomMat;
+    private Mat mNarrowMat;
+    private Mat mCacheMat;
     private File mCascadeFile;
     private DetectionBasedTracker mNativeDetector;
 
@@ -86,7 +80,7 @@ public class FdActivity extends Activity implements CvCameraViewListener2
                     Log.i(TAG, "OpenCV loaded successfully");
                     System.loadLibrary("opencv_java3");
                     // Load native library after(!) OpenCV initialization
-                    System.loadLibrary("FaceDetected");
+                    System.loadLibrary("detection_based_tracker");
 
                     try
                     {
@@ -128,7 +122,7 @@ public class FdActivity extends Activity implements CvCameraViewListener2
         }
     };
 
-    public FdActivity()
+    public LastActivity()
     {
         mDetectorName = new String[2];
         mDetectorName[JAVA_DETECTOR] = "Java";
@@ -151,7 +145,6 @@ public class FdActivity extends Activity implements CvCameraViewListener2
         mOpenCvCameraView.setVisibility(CameraBridgeViewBase.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
         mOpenCvCameraView.setCameraIndex(CameraBridgeViewBase.CAMERA_ID_BACK);
-        mOpenCvCameraView.setWindowManager(getWindowManager());
 
         mImageView = findViewById(R.id.fd_image_view);
         mImageView.setScaleType(ImageView.ScaleType.FIT_XY);
@@ -173,28 +166,6 @@ public class FdActivity extends Activity implements CvCameraViewListener2
                 mOpenCvCameraView.enableView();
             }
         });
-
-        // First check android version
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP_MR1)
-        {
-            //Check if permission is already granted
-            //thisActivity is your activity. (e.g.: MainActivity.this)
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
-            {
-                // Give first an explanation, if needed.
-                if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA))
-                {
-                    // Show an explanation to the user *asynchronously* -- don't block
-                    // this thread waiting for the user's response! After the user
-                    // sees the explanation, try again to request the permission.
-                }
-                else
-                {
-                    // No explanation needed, we can request the permission.
-                    ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 1);
-                }
-            }
-        }
     }
 
     @Override
@@ -233,20 +204,23 @@ public class FdActivity extends Activity implements CvCameraViewListener2
     {
         mGray = new Mat();
         mRgba = new Mat();
-        mCache90Mat = new Mat();
-
-        gMatlin = new Mat();
-        Matlin = new Mat();
-
-        // height = height - getStausBarHeight(this) - getVirtualBarHeight(this);
-
+        mCacheMat = new Mat();
         float mScale = (float) height / (float) 540;
-        mCacheBitmap = Bitmap.createBitmap((int) ((float) width / mScale), (int) ((float) height / mScale), Bitmap.Config.ARGB_4444);
-        Utils.bitmapToMat(mCacheBitmap, mCache90Mat);
-        Core.rotate(mCache90Mat, mCache90Mat, Core.ROTATE_90_CLOCKWISE);
 
-        System.out.println("mScale = " + mScale + "，width = " + mCacheBitmap.getWidth() + "，height = " + mCacheBitmap.getHeight());
-        mNarrowSize = new Size(mCacheBitmap.getWidth(), mCacheBitmap.getHeight()); // 设置新图片的大小
+        mNarrowSize = new Size(width / mScale, height / mScale); // 设置新图片的大小
+        mZoomSize = new Size(width, height);
+
+        mNarrowMat = new Mat(mNarrowSize, CvType.CV_8UC1);
+        mZoomMat = new Mat(mNarrowSize, CvType.CV_8UC1);
+
+        Matlin = new Mat(mNarrowSize, CvType.CV_8UC1);
+        gMatlin = new Mat();
+        mCacheMat = new Mat();
+
+        //        System.out.println("mScale = " + mScale + "，width = " + width + "，height = " + height);
+        //        mCacheBitmap = Bitmap.createBitmap((int) (width / mScale), (int) (height / mScale), Bitmap.Config.ARGB_4444);
+        //        Utils.bitmapToMat(mCacheBitmap, mCacheMat);
+        //        Core.rotate(mCacheMat, mCacheMat, Core.ROTATE_90_CLOCKWISE);
     }
 
     public void onCameraViewStopped()
@@ -259,48 +233,43 @@ public class FdActivity extends Activity implements CvCameraViewListener2
     public Mat onCameraFrame(CvCameraViewFrame inputFrame)
     {
         mGray = inputFrame.gray();
-        Mat narrowMat = new Mat(mNarrowSize, CvType.CV_8UC1);
-        Imgproc.resize(mGray, narrowMat, mNarrowSize);
-        mCache90Mat.copyTo(Matlin);
-        //使前置的图像也是正的
-        if (mOpenCvCameraView.getCameraIndex() == CameraBridgeViewBase.CAMERA_ID_FRONT)
-        {
-            Core.flip(narrowMat, narrowMat, 1);
-        }
-        if (mAbsoluteFaceSize == 0)
-        {
-            int height = narrowMat.rows();
-            if (Math.round(height * mRelativeFaceSize) > 0)
-            {
-                mAbsoluteFaceSize = Math.round(height * mRelativeFaceSize);
-            }
-            if (mNativeDetector != null)
-            {
-                mNativeDetector.setMinFaceSize(mAbsoluteFaceSize);
-            }
-        }
-
-        MatOfRect faces = new MatOfRect();
-        if (mOpenCvCameraView.getDisplayOrientation() == 270)
-        {
-            Core.rotate(narrowMat, gMatlin, Core.ROTATE_90_COUNTERCLOCKWISE);
-        }
-        else
-        {
-            Core.rotate(narrowMat, gMatlin, Core.ROTATE_90_CLOCKWISE);
-        }
-        if (mNativeDetector != null)
-        {
-            mNativeDetector.detect(gMatlin, faces);
-        }
-        Rect[] faceArray = faces.toArray();
-        for (Rect rect : faceArray)
-        {
-            Imgproc.rectangle(Matlin, rect.tl(), rect.br(), new Scalar(0, 255, 0, 255), 1);
-        }
-        Core.rotate(Matlin, mRgba, Core.ROTATE_90_COUNTERCLOCKWISE);
-
-        deliverAndDrawFrame(faceArray.length, mRgba);
+        mRgba = inputFrame.rgba();
+//        Imgproc.resize(mGray, mNarrowMat, mNarrowSize);
+//        Imgproc.resize(mRgba, Matlin, mNarrowSize);
+//        //使前置的图像也是正的
+//        if (mOpenCvCameraView.getCameraIndex() == CameraBridgeViewBase.CAMERA_ID_FRONT)
+//        {
+//            Core.flip(mNarrowMat, mNarrowMat, 1);
+//            Core.flip(Matlin, Matlin, 1);
+//        }
+//        if (mAbsoluteFaceSize == 0)
+//        {
+//            int height = mNarrowMat.rows();
+//            if (Math.round(height * mRelativeFaceSize) > 0)
+//            {
+//                mAbsoluteFaceSize = Math.round(height * mRelativeFaceSize);
+//            }
+//            if (mNativeDetector != null)
+//            {
+//                mNativeDetector.setMinFaceSize(mAbsoluteFaceSize);
+//            }
+//        }
+//
+//        MatOfRect faces = new MatOfRect();
+//        Core.rotate(mNarrowMat, gMatlin, Core.ROTATE_90_CLOCKWISE);
+//        Core.rotate(Matlin, mCacheMat, Core.ROTATE_90_CLOCKWISE);
+//        if (mNativeDetector != null)
+//        {
+//            mNativeDetector.detect(gMatlin, faces);
+//        }
+//        Rect[] faceArray = faces.toArray();
+//        for (Rect rect : faceArray)
+//        {
+//            Imgproc.rectangle(mCacheMat, rect.tl(), rect.br(), new Scalar(0, 255, 0, 255), 1);
+//        }
+//        Core.rotate(mCacheMat, Matlin, Core.ROTATE_90_COUNTERCLOCKWISE);
+//        Imgproc.resize(Matlin, mZoomMat, mZoomSize);
+        //         deliverAndDrawFrame(faceArray.length, mRgba);
         return mRgba;
     }
 

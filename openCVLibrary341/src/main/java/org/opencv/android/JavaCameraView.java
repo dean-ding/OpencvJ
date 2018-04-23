@@ -267,7 +267,8 @@ public class JavaCameraView extends CameraBridgeViewBase implements PreviewCallb
                         mCamera.setPreviewDisplay(null);
                     }
                     mCamera.setPreviewDisplay(getHolder());
-                    mCamera.setDisplayOrientation(90);
+                    // mCamera.setDisplayOrientation(90);
+                    setCameraDisplayOrientation(mWindowManager, mCameraIndex, mCamera);
 
                     /* Finally we are ready to start the preview */
                     Log.d(TAG, "startPreview");
@@ -472,7 +473,7 @@ public class JavaCameraView extends CameraBridgeViewBase implements PreviewCallb
                         hasFrame = true;
                     }
                 }
-
+                long decodeTime = System.currentTimeMillis();
                 if (!mStopThread && hasFrame)
                 {
                     if (!mFrameChain[1 - mChainIdx].empty())
@@ -480,6 +481,7 @@ public class JavaCameraView extends CameraBridgeViewBase implements PreviewCallb
                         deliverAndDrawFrame(mCameraFrame[1 - mChainIdx]);
                     }
                 }
+                System.out.println("decode time is " + (System.currentTimeMillis() - decodeTime));
             }
             while (!mStopThread);
             Log.d(TAG, "Finish processing thread");

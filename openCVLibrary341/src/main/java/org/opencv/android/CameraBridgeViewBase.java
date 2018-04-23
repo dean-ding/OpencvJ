@@ -6,16 +6,22 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
+import android.hardware.Camera;
 import android.util.AttributeSet;
+import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Display;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.WindowManager;
 import android.widget.ImageView;
 
 import org.opencv.R;
 import org.opencv.core.Mat;
 import org.opencv.core.Size;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 /**
@@ -49,6 +55,7 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
     protected boolean mEnabled;
     protected FpsMeter mFpsMeter = null;
     protected ImageView mImageView;
+    protected WindowManager mWindowManager;
 
     public static final int CAMERA_ID_ANY = -1;
     public static final int CAMERA_ID_BACK = 99;
@@ -104,6 +111,11 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
     public int getCameraIndex()
     {
         return this.mCameraIndex;
+    }
+
+    public void setWindowManager(WindowManager windowManager)
+    {
+        this.mWindowManager = windowManager;
     }
 
     public interface CvCameraViewListener
@@ -543,6 +555,29 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
         public int getHeight(Object obj);
     }
 
+    /** 获取虚拟功能键高度 */
+    public int getVirtualBarHeight(Context context)
+    {
+        int vh = 0;
+        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        Display display = windowManager.getDefaultDisplay();
+        DisplayMetrics dm = new DisplayMetrics();
+        try
+        {
+            @SuppressWarnings("rawtypes")
+            Class c = Class.forName("android.view.Display");
+            @SuppressWarnings("unchecked")
+            Method method = c.getMethod("getRealMetrics", DisplayMetrics.class);
+            method.invoke(display, dm);
+            vh = dm.heightPixels - windowManager.getDefaultDisplay().getHeight();
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+        return vh;
+    }
+
     /**
      * This helper method can be called by subclasses to select camera preview size.
      * It goes over the list of the supported preview sizes and selects the maximum one which
@@ -566,7 +601,9 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
             //根据资源ID获取响应的尺寸值
             statusBarHeight = getResources().getDimensionPixelSize(resourceId);
         }
-        surfaceHeight += statusBarHeight;
+        int virtualBarHeight = getVirtualBarHeight(this.getContext());
+        surfaceHeight += statusBarHeight + virtualBarHeight;
+        System.out.println(surfaceWidth + "<------3------>" + surfaceHeight);
 
         int maxAllowedWidth = (mMaxWidth != MAX_UNSPECIFIED && mMaxWidth < surfaceWidth) ? mMaxWidth : surfaceWidth;
         int maxAllowedHeight = (mMaxHeight != MAX_UNSPECIFIED && mMaxHeight < surfaceHeight) ? mMaxHeight : surfaceHeight;
@@ -592,5 +629,77 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
         }
 
         return new Size(calcWidth, calcHeight);
+    }
+
+    private int mDisplayOrientation = 0;
+
+    protected void setCameraDisplayOrientation(WindowManager windowManager, int cameraId, android.hardware.Camera camera)
+    {
+        int localCameraIndex = -1;
+        Camera.CameraInfo cameraInfo = new Camera.CameraInfo();
+        for (int camIdx = 0; camIdx < Camera.getNumberOfCameras(); ++camIdx)
+        {
+            Camera.getCameraInfo(camIdx, cameraInfo);
+            if (cameraId == CAMERA_ID_BACK)
+            {
+                if (cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_BACK)
+                {
+                    localCameraIndex = camIdx;
+                    break;
+                }
+            }
+            else if (cameraId == CAMERA_ID_FRONT)
+            {
+                if (cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_FRONT)
+                {
+                    localCameraIndex = camIdx;
+                    break;
+                }
+            }
+            else if (cameraId == CAMERA_ID_ANY)
+            {
+                localCameraIndex = camIdx;
+                break;
+            }
+        }
+
+        android.hardware.Camera.CameraInfo info = new android.hardware.Camera.CameraInfo();
+        android.hardware.Camera.getCameraInfo(localCameraIndex, info);
+        int rotation = windowManager.getDefaultDisplay().getRotation();
+        int degrees = 0;
+        switch (rotation)
+        {
+            case Surface.ROTATION_0:
+                degrees = 0;
+                break;
+            case Surface.ROTATION_90:
+                degrees = 90;
+                break;
+            case Surface.ROTATION_180:
+                degrees = 180;
+                break;
+            case Surface.ROTATION_270:
+                degrees = 270;
+                break;
+        }
+
+        int result;
+        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT)
+        {
+            result = (info.orientation + degrees) % 360;
+            result = (360 - result) % 360;  // compensate the mirror
+        }
+        else
+        {  // back-facing
+            result = (info.orientation - degrees + 360) % 360;
+        }
+        System.out.println("setCameraDisplayOrientation result = " + result);
+        camera.setDisplayOrientation(result);
+        mDisplayOrientation = result;
+    }
+
+    public int getDisplayOrientation()
+    {
+        return mDisplayOrientation;
     }
 }
